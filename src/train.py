@@ -119,7 +119,7 @@ def train(
     loader = cycle(data_loader)
 
     for epoch in range(epochs):
-        for i in track(range(len(dataset)), description=f"Epoch {epoch+1}/{epochs}"):
+        for i in track(range(len(dataset) // batch_size), description=f"Epoch {epoch+1}/{epochs}"):
             losses = []
             for _ in range(4):
                 loss = model(next(loader))
