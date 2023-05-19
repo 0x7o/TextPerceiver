@@ -159,7 +159,7 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_name", type=str, default="openwebtext")
+    parser.add_argument("--dataset", type=str, default="openwebtext")
     parser.add_argument("--text_field", type=str, default="text")
     parser.add_argument("--seq_len", type=int, default=4096)
     parser.add_argument("--tokenizer", type=str, default="gpt2")
