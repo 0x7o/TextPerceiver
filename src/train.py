@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 
 from perceiver_ar_pytorch import PerceiverAR
 from perceiver_ar_pytorch.autoregressive_wrapper import AutoregressiveWrapper
+import torch.optim.lr_scheduler as lr_scheduler
 from dataset import HuggingDataset
 
 import argparse
@@ -114,6 +115,7 @@ def train(
     optim = torch.optim.Adam(model.parameters(), lr=lr)
 
     model, optim, data_loader = accelerator.prepare(model, optim, data_loader)
+    scheduler = lr_scheduler.LinearLR(optim, start_factor=1, total_iters=len(data_loader) * epochs)
 
     model.train()
     loader = cycle(data_loader)
@@ -125,15 +127,6 @@ def train(
                 loss = model(next(loader))
                 accelerator.backward(loss)
                 losses.append(loss.item())
-                if use_wandb:
-                    wandb.log(
-                        {
-                            "loss": loss.item(),
-                            "ppl": np.exp(loss.item()),
-                            "step": i,
-                            "processed_tokens": i * batch_size * seq_len * epoch,
-                        }
-                    )
             if i % generate_every == 0:
                 model.eval()
                 inp = random.choice(dataset)[:-1]
@@ -150,10 +143,21 @@ def train(
                     f"{sum(losses)/len(losses):.3f}",
                     f"{np.exp(sum(losses)/len(losses)):.3f}",
                 )
+                if use_wandb:
+                    wandb.log(
+                        {
+                            "loss": sum(losses) / len(losses),
+                            "ppl": np.exp(sum(losses) / len(losses)),
+                            "step": i,
+                            "processed_tokens": i * batch_size * seq_len * (epoch + 1),
+                            "lr": scheduler.get_last_lr()[0],
+                        }
+                    )
                 console.print(table)
 
             optim.step()
             optim.zero_grad()
+            scheduler.step()
 
 
 if __name__ == "__main__":
