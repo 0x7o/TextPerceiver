@@ -188,7 +188,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train(
-        args.dataset_name,
+        args.dataset,
         args.text_field,
         args.seq_len,
         args.tokenizer,
