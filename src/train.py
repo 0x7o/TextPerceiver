@@ -125,14 +125,21 @@ def train(
                 loss = model(next(loader))
                 accelerator.backward(loss)
                 losses.append(loss.item())
+                if use_wandb:
+                    wandb.log(
+                        {
+                            "loss": loss.item(),
+                            "ppl": np.exp(loss.item()),
+                            "step": i,
+                            "processed_tokens": i * batch_size * seq_len * epoch,
+                        }
+                    )
             if i % generate_every == 0:
                 model.eval()
                 inp = random.choice(dataset)[:-1]
 
-                sample = model.generate(inp[None, ...], 512)
+                sample = model.generate(inp[None, ...], 64)
                 text = dataset.tokenizer.decode(sample[0])
-                if use_wandb:
-                    wandb.log({"text": text, "step": i})
                 console.print(text)
             if i % save_every == 0:
                 torch.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
@@ -144,14 +151,6 @@ def train(
                     f"{np.exp(sum(losses)/len(losses)):.3f}",
                 )
                 console.print(table)
-                if use_wandb:
-                    wandb.log(
-                        {
-                            "loss": sum(losses) / len(losses),
-                            "ppl": np.exp(sum(losses) / len(losses)),
-                            "step": i,
-                        }
-                    )
 
             optim.step()
             optim.zero_grad()
