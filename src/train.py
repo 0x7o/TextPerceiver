@@ -113,9 +113,9 @@ def train(
     table.add_column("PPL")
 
     optim = torch.optim.Adam(model.parameters(), lr=lr)
-
-    model, optim, data_loader = accelerator.prepare(model, optim, data_loader)
     scheduler = lr_scheduler.LinearLR(optim, start_factor=1, total_iters=len(data_loader) * epochs)
+
+    model, optim, data_loader, scheduler = accelerator.prepare(model, optim, data_loader, scheduler)
 
     model.train()
     loader = cycle(data_loader)
@@ -149,7 +149,7 @@ def train(
                             "loss": sum(losses) / len(losses),
                             "ppl": np.exp(sum(losses) / len(losses)),
                             "step": i,
-                            "processed_tokens": i * batch_size * seq_len * (epoch + 1),
+                            "processed_tokens": i * batch_size * seq_len,
                             "lr": scheduler.get_last_lr()[0],
                         }
                     )
