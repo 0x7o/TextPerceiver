@@ -6,13 +6,15 @@ from torch.utils.data import DataLoader
 
 
 class HuggingDataset(Dataset):
-    def __init__(self, dataset_name, text_field, seq_len, device, separate_token):
+    def __init__(
+        self, dataset_name, text_field, seq_len, device, separate_token, tokenizer
+    ):
         self.dataset_name = dataset_name
         self.text_field = text_field
         self.seq_len = seq_len
         self.device = device
         self.separate_token = separate_token
-        self.tokenizer = AutoTokenizer.from_pretrained("ai-forever/rugpt3large_based_on_gpt2")
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
         self.data = self._load_data()
 
     def _load_data(self):
@@ -43,17 +45,3 @@ class HuggingDataset(Dataset):
         input_ids = torch.tensor(tokens, dtype=torch.long).unsqueeze(0).to(self.device)
 
         return input_ids[0]
-
-
-if __name__ == "__main__":
-    dataset = HuggingDataset(
-        "yelp_review_full",
-        "text",
-        4096,
-        "cuda",
-        "<|endoftext|>",
-    )
-    train_loader = DataLoader(dataset, batch_size=1)
-    for batch in train_loader:
-        print(batch.shape)
-        break

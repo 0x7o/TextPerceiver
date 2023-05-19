@@ -17,21 +17,26 @@ from rich.console import Console
 from rich.progress import track
 from rich import box
 
+from accelerate import Accelerator
+
 
 def cycle(loader):
     while True:
         for data in loader:
             yield data
 
+
 def train(
     dataset_name,
     text_field,
     seq_len,
+    tokenizer,
     separate_token,
     batch_size,
+    cpu,
+    mixed_precision,
     lr,
     epochs,
-    device,
     generate_every,
     save_every,
     log_every,
@@ -47,6 +52,7 @@ def train(
     wandb_project,
 ):
     console = Console()
+    accelerator = Accelerator(cpu=cpu, mixed_precision=mixed_precision)
 
     if use_wandb:
         wandb.init(project=wandb_project)
@@ -58,11 +64,12 @@ def train(
         dataset_name,
         text_field,
         seq_len,
-        device,
+        accelerator.device,
         separate_token,
+        tokenizer,
     )
 
-    loader = cycle(DataLoader(dataset, batch_size=batch_size))
+    data_loader = DataLoader(dataset, batch_size=batch_size)
 
     model = PerceiverAR(
         num_tokens=num_tokens,
@@ -76,7 +83,7 @@ def train(
     )
 
     model = AutoregressiveWrapper(model)
-    model.to(device)
+    model.to(accelerator.device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -105,14 +112,18 @@ def train(
     table.add_column("PPL")
 
     optim = torch.optim.Adam(model.parameters(), lr=lr)
+
+    model, optim, data_loader = accelerator.prepare(model, optim, data_loader)
+
     model.train()
-    
+    loader = cycle(data_loader)
+
     for epoch in range(epochs):
         for i in track(range(len(dataset)), description=f"Epoch {epoch+1}/{epochs}"):
             losses = []
             for _ in range(4):
                 loss = model(next(loader))
-                loss.backward()
+                accelerator.backward(loss)
                 losses.append(loss.item())
             if i % generate_every == 0:
                 model.eval()
@@ -126,10 +137,21 @@ def train(
             if i % save_every == 0:
                 torch.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
             if i % log_every == 0:
-                table.add_row(str(epoch+1), str(i), f"{sum(losses)/len(losses):.3f}", f"{np.exp(sum(losses)/len(losses)):.3f}")
+                table.add_row(
+                    str(epoch + 1),
+                    str(i),
+                    f"{sum(losses)/len(losses):.3f}",
+                    f"{np.exp(sum(losses)/len(losses)):.3f}",
+                )
                 console.print(table)
                 if use_wandb:
-                    wandb.log({"loss": sum(losses)/len(losses), "ppl": np.exp(sum(losses)/len(losses)), "step": i})
+                    wandb.log(
+                        {
+                            "loss": sum(losses) / len(losses),
+                            "ppl": np.exp(sum(losses) / len(losses)),
+                            "step": i,
+                        }
+                    )
 
             optim.step()
             optim.zero_grad()
@@ -137,14 +159,16 @@ def train(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset_name", type=str, default="0x7194633/GCRL-dtf")
+    parser.add_argument("--dataset_name", type=str, default="openwebtext")
     parser.add_argument("--text_field", type=str, default="text")
     parser.add_argument("--seq_len", type=int, default=4096)
+    parser.add_argument("--tokenizer", type=str, default="gpt2")
     parser.add_argument("--separate_token", type=str, default="<|endoftext|>")
     parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--mixed_precision", type=str, default="fp16")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--generate_every", type=int, default=100)
     parser.add_argument("--log_every", type=int, default=10)
     parser.add_argument("--save_every", type=int, default=1000)
@@ -167,11 +191,13 @@ if __name__ == "__main__":
         args.dataset_name,
         args.text_field,
         args.seq_len,
+        args.tokenizer,
         args.separate_token,
         args.batch_size,
+        args.cpu,
+        args.mixed_precision,
         args.lr,
         args.epochs,
-        args.device,
         args.generate_every,
         args.save_every,
         args.log_every,
