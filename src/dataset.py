@@ -6,7 +6,7 @@ from transformers import AutoTokenizer
 
 class HuggingDataset(Dataset):
     def __init__(
-        self, dataset_name, text_field, seq_len, device, separate_token, tokenizer
+            self, dataset_name, text_field, seq_len, device, separate_token, tokenizer
     ):
         self.dataset_name = dataset_name
         self.text_field = text_field

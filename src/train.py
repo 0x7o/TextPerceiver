@@ -1,24 +1,21 @@
-import torch
+import argparse
+import os
 import random
 
 import numpy as np
-from torch.utils.data import DataLoader
-
+import torch
+import torch.optim.lr_scheduler as lr_scheduler
+import wandb
+from accelerate import Accelerator
 from perceiver_ar_pytorch import PerceiverAR
 from perceiver_ar_pytorch.autoregressive_wrapper import AutoregressiveWrapper
-import torch.optim.lr_scheduler as lr_scheduler
-from dataset import HuggingDataset
-
-import argparse
-import wandb
-import os
-
-from rich.table import Table
+from rich import box
 from rich.console import Console
 from rich.progress import track
-from rich import box
+from rich.table import Table
+from torch.utils.data import DataLoader
 
-from accelerate import Accelerator
+from dataset import HuggingDataset
 
 
 def cycle(loader):
@@ -28,29 +25,29 @@ def cycle(loader):
 
 
 def train(
-    dataset_name,
-    text_field,
-    seq_len,
-    tokenizer,
-    separate_token,
-    batch_size,
-    cpu,
-    mixed_precision,
-    lr,
-    epochs,
-    generate_every,
-    save_every,
-    log_every,
-    output_dir,
-    num_tokens,
-    dim,
-    depth,
-    heads,
-    dim_head,
-    cross_attn_dropout,
-    cross_attn_seq_len,
-    use_wandb,
-    wandb_project,
+        dataset_name,
+        text_field,
+        seq_len,
+        tokenizer,
+        separate_token,
+        batch_size,
+        cpu,
+        mixed_precision,
+        lr,
+        epochs,
+        generate_every,
+        save_every,
+        log_every,
+        output_dir,
+        num_tokens,
+        dim,
+        depth,
+        heads,
+        dim_head,
+        cross_attn_dropout,
+        cross_attn_seq_len,
+        use_wandb,
+        wandb_project,
 ):
     console = Console()
     accelerator = Accelerator(cpu=cpu, mixed_precision=mixed_precision)
@@ -121,7 +118,7 @@ def train(
     loader = cycle(data_loader)
 
     for epoch in range(epochs):
-        for i in track(range(len(dataset) // batch_size), description=f"Epoch {epoch+1}/{epochs}"):
+        for i in track(range(len(dataset) // batch_size), description=f"Epoch {epoch + 1}/{epochs}"):
             losses = []
             for _ in range(4):
                 loss = model(next(loader))
@@ -134,14 +131,17 @@ def train(
                 sample = model.generate(inp[None, ...], 64)
                 text = dataset.tokenizer.decode(sample[0])
                 console.print(text)
+                with open(f"{output_dir}/sample_{i}.txt", "w", encoding="utf-8") as f:
+                    f.write(text)
+                model.train()
             if i % save_every == 0:
                 torch.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
             if i % log_every == 0:
                 table.add_row(
                     str(epoch + 1),
                     str(i),
-                    f"{sum(losses)/len(losses):.3f}",
-                    f"{np.exp(sum(losses)/len(losses)):.3f}",
+                    f"{sum(losses) / len(losses):.3f}",
+                    f"{np.exp(sum(losses) / len(losses)):.3f}",
                 )
                 if use_wandb:
                     wandb.log(
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="openwebtext")
     parser.add_argument("--text_field", type=str, default="text")
-    parser.add_argument("--seq_len", type=int, default=4096)
+    parser.add_argument("--seq_len", type=int, default=4096)  # 131072
     parser.add_argument("--tokenizer", type=str, default="gpt2")
     parser.add_argument("--separate_token", type=str, default="<|endoftext|>")
     parser.add_argument("--batch_size", type=int, default=1)
@@ -178,12 +178,12 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=str, default="output")
     # Model
     parser.add_argument("--num_tokens", type=int, default=50400)
-    parser.add_argument("--dim", type=int, default=512)
-    parser.add_argument("--depth", type=int, default=8)
-    parser.add_argument("--heads", type=int, default=8)
-    parser.add_argument("--dim_head", type=int, default=64)
+    parser.add_argument("--dim", type=int, default=1024)
+    parser.add_argument("--depth", type=int, default=16)
+    parser.add_argument("--heads", type=int, default=16)
+    parser.add_argument("--dim_head", type=int, default=128)
     parser.add_argument("--cross_attn_dropout", type=int, default=0.5)
-    parser.add_argument("--cross_attn_seq_len", type=int, default=3584)
+    parser.add_argument("--cross_attn_seq_len", type=int, default=3584)  # 114688
     # Logging
     parser.add_argument("--wandb", action="store_true")
     parser.add_argument("--wandb_project", type=str, default="text-perceiver")
