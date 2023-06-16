@@ -87,7 +87,7 @@ def train(
     )
 
     model = AutoregressiveWrapper(model)
-    model = DDP(model)
+    # model = DDP(model)
     model.to(device)
     pjrt.broadcast_master_param(model)
 
