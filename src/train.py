@@ -87,9 +87,9 @@ def train(
     )
 
     model = AutoregressiveWrapper(model)
-    pjrt.broadcast_master_param(model)
     model = DDP(model)
     model.to(device)
+    pjrt.broadcast_master_param(model)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
