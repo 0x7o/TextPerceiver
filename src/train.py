@@ -6,7 +6,6 @@ import numpy as np
 import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
-from accelerate import Accelerator
 from perceiver_ar_pytorch import PerceiverAR
 from perceiver_ar_pytorch.autoregressive_wrapper import AutoregressiveWrapper
 from rich import box
@@ -16,6 +15,15 @@ from rich.table import Table
 from torch.utils.data import DataLoader
 
 from dataset import HuggingDataset
+
+from torch.nn.parallel import DistributedDataParallel as DDP
+import torch.distributed as dist
+import torch_xla.core.xla_model as xm
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_backend
+import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.experimental.pjrt_backend
+import torch_xla.experimental.pjrt as pjrt
 
 
 def cycle(loader):
@@ -31,8 +39,6 @@ def train(
         tokenizer,
         separate_token,
         batch_size,
-        cpu,
-        mixed_precision,
         lr,
         epochs,
         generate_every,
@@ -50,7 +56,6 @@ def train(
         wandb_project,
 ):
     console = Console()
-    accelerator = Accelerator(cpu=cpu, mixed_precision=mixed_precision)
 
     if use_wandb:
         wandb.init(project=wandb_project)
@@ -58,16 +63,19 @@ def train(
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
+    device = xm.xla_device()
+    dist.init_process_group('xla', init_method='pjrt://')
+
     dataset = HuggingDataset(
         dataset_name,
         text_field,
         seq_len,
-        accelerator.device,
+        device,
         separate_token,
         tokenizer,
     )
 
-    data_loader = DataLoader(dataset, batch_size=batch_size)
+    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
     model = PerceiverAR(
         num_tokens=num_tokens,
@@ -81,7 +89,9 @@ def train(
     )
 
     model = AutoregressiveWrapper(model)
-    model.to(accelerator.device)
+    pjrt.broadcast_master_param(model)
+    model = DDP(model)
+    model.to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -112,8 +122,6 @@ def train(
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = lr_scheduler.LinearLR(optim, start_factor=1, total_iters=len(data_loader) * epochs)
 
-    model, optim, data_loader, scheduler = accelerator.prepare(model, optim, data_loader, scheduler)
-
     model.train()
     loader = cycle(data_loader)
 
@@ -122,7 +130,7 @@ def train(
             losses = []
             for _ in range(4):
                 loss = model(next(loader))
-                accelerator.backward(loss)
+                loss.backward()
                 losses.append(loss.item())
             if i % generate_every == 0:
                 model.eval()
@@ -158,6 +166,7 @@ def train(
             optim.step()
             optim.zero_grad()
             scheduler.step()
+            xm.mark_step()
 
 
 if __name__ == "__main__":
@@ -168,8 +177,6 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer", type=str, default="gpt2")
     parser.add_argument("--separate_token", type=str, default="<|endoftext|>")
     parser.add_argument("--batch_size", type=int, default=1)
-    parser.add_argument("--cpu", action="store_true")
-    parser.add_argument("--mixed_precision", type=str, default="fp16")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--generate_every", type=int, default=100)
@@ -190,28 +197,30 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    train(
-        args.dataset,
-        args.text_field,
-        args.seq_len,
-        args.tokenizer,
-        args.separate_token,
-        args.batch_size,
-        args.cpu,
-        args.mixed_precision,
-        args.lr,
-        args.epochs,
-        args.generate_every,
-        args.save_every,
-        args.log_every,
-        args.output_dir,
-        args.num_tokens,
-        args.dim,
-        args.depth,
-        args.heads,
-        args.dim_head,
-        args.cross_attn_dropout,
-        args.cross_attn_seq_len,
-        args.wandb,
-        args.wandb_project,
+    os.environ['PJRT_DEVICE'] = 'TPU'
+
+    xmp.spawn(
+        train(
+            args.dataset,
+            args.text_field,
+            args.seq_len,
+            args.tokenizer,
+            args.separate_token,
+            args.batch_size,
+            args.lr,
+            args.epochs,
+            args.generate_every,
+            args.save_every,
+            args.log_every,
+            args.output_dir,
+            args.num_tokens,
+            args.dim,
+            args.depth,
+            args.heads,
+            args.dim_head,
+            args.cross_attn_dropout,
+            args.cross_attn_seq_len,
+            args.wandb,
+            args.wandb_project,
+        )
     )
