@@ -20,9 +20,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import torch_xla.core.xla_model as xm
 import torch_xla.distributed.parallel_loader as pl
-import torch_xla.distributed.xla_backend
 import torch_xla.distributed.xla_multiprocessing as xmp
-import torch_xla.experimental.pjrt_backend
 import torch_xla.experimental.pjrt as pjrt
 
 
