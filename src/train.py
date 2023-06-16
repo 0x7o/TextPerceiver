@@ -16,10 +16,7 @@ from torch.utils.data import DataLoader
 
 from dataset import HuggingDataset
 
-from torch.nn.parallel import DistributedDataParallel as DDP
-import torch.distributed as dist
 import torch_xla.core.xla_model as xm
-import torch_xla.distributed.parallel_loader as pl
 import torch_xla.distributed.xla_multiprocessing as xmp
 import torch_xla.experimental.pjrt as pjrt
 
@@ -89,7 +86,7 @@ def train(
     model = AutoregressiveWrapper(model)
     # model = DDP(model)
     model.to(device)
-    pjrt.broadcast_master_param(model)
+    # pjrt.broadcast_master_param(model)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
