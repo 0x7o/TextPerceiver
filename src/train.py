@@ -7,7 +7,6 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
 from perceiver_ar_pytorch import PerceiverAR
-from accelerate import Accelerator
 from perceiver_ar_pytorch.autoregressive_wrapper import AutoregressiveWrapper
 from rich import box
 from rich.console import Console
@@ -16,6 +15,7 @@ from rich.table import Table
 from torch.utils.data import DataLoader
 
 from dataset import HuggingDataset
+import torch_xla.core.xla_model as xm
 
 
 def cycle(loader):
@@ -57,13 +57,13 @@ def train(
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    accelerator = Accelerator(cpu=cpu, mixed_precision=mixed_precision)
+    device = xm.xla_device()
 
     dataset = HuggingDataset(
         dataset_name,
         text_field,
         seq_len,
-        accelerator.device,
+        device,
         separate_token,
         tokenizer,
     )
@@ -82,7 +82,7 @@ def train(
     )
 
     model = AutoregressiveWrapper(model)
-    model.to(accelerator.device)
+    model = model.to(device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -113,8 +113,6 @@ def train(
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = lr_scheduler.LinearLR(optim, start_factor=1, total_iters=len(data_loader) * epochs)
 
-    model, optim, data_loader, scheduler = accelerator.prepare(model, optim, data_loader, scheduler)
-
     model.train()
     loader = cycle(data_loader)
 
@@ -123,7 +121,7 @@ def train(
             losses = []
             for _ in range(4):
                 loss = model(next(loader))
-                accelerator.backward(loss)
+                loss.backward()
                 losses.append(loss.item())
             if i % generate_every == 0:
                 model.eval()
