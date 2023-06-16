@@ -86,7 +86,7 @@ def train(
     model = AutoregressiveWrapper(model)
     # model = DDP(model)
     model.to(device)
-    # pjrt.broadcast_master_param(model)
+    pjrt.broadcast_master_param(model)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -130,6 +130,7 @@ def train(
             if i % generate_every == 0:
                 model.eval()
                 inp = random.choice(dataset)[:-1]
+                print(inp)
 
                 sample = model.generate(inp[None, ...], 64)
                 text = dataset.tokenizer.decode(sample[0])
