@@ -128,16 +128,15 @@ def train(
                 loss.backward()
                 losses.append(loss.item())
             if i % generate_every == 0:
-                model.eval()
+                """model.eval()
                 inp = random.choice(dataset)[:-1]
-                print(inp)
-
                 sample = model.generate(inp[None, ...], 64)
                 text = dataset.tokenizer.decode(sample[0])
                 console.print(text)
                 with open(f"{output_dir}/sample_{i}.txt", "w", encoding="utf-8") as f:
                     f.write(text)
-                model.train()
+                model.train()"""
+                ...
             if i % save_every == 0:
                 torch.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
             if i % log_every == 0:
