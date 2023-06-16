@@ -136,7 +136,7 @@ def train(
                 model.train()"""
                 ...
             if i % save_every == 0:
-                torch.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
+                xm.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
             if i % log_every == 0:
                 table.add_row(
                     str(epoch + 1),
