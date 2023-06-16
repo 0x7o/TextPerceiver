@@ -62,7 +62,7 @@ def train(
         os.makedirs(output_dir)
 
     device = xm.xla_device()
-    dist.init_process_group('xla', init_method='pjrt://')
+    #dist.init_process_group('xla', init_method='pjrt://')
 
     dataset = HuggingDataset(
         dataset_name,

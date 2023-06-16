@@ -17,7 +17,7 @@ class HuggingDataset(Dataset):
         self.data = self._load_data()
 
     def _load_data(self):
-        dataset = load_dataset(self.dataset_name)["train.py"]
+        dataset = load_dataset(self.dataset_name)["train"]
         return dataset
 
     def __len__(self):
