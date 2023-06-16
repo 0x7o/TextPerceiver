@@ -73,7 +73,7 @@ def train(
         tokenizer,
     )
 
-    data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+    data_loader = DataLoader(dataset, batch_size=batch_size)
 
     model = PerceiverAR(
         num_tokens=num_tokens,
