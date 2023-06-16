@@ -7,6 +7,7 @@ import torch
 import torch.optim.lr_scheduler as lr_scheduler
 import wandb
 from perceiver_ar_pytorch import PerceiverAR
+from accelerate import Accelerator
 from perceiver_ar_pytorch.autoregressive_wrapper import AutoregressiveWrapper
 from rich import box
 from rich.console import Console
@@ -15,10 +16,6 @@ from rich.table import Table
 from torch.utils.data import DataLoader
 
 from dataset import HuggingDataset
-
-import torch_xla.core.xla_model as xm
-import torch_xla.distributed.xla_multiprocessing as xmp
-import torch_xla.experimental.pjrt as pjrt
 
 
 def cycle(loader):
@@ -34,6 +31,8 @@ def train(
         tokenizer,
         separate_token,
         batch_size,
+        cpu,
+        mixed_precision,
         lr,
         epochs,
         generate_every,
@@ -58,14 +57,13 @@ def train(
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    device = xm.xla_device()
-    #dist.init_process_group('xla', init_method='pjrt://')
+    accelerator = Accelerator(cpu=cpu, mixed_precision=mixed_precision)
 
     dataset = HuggingDataset(
         dataset_name,
         text_field,
         seq_len,
-        device,
+        accelerator.device,
         separate_token,
         tokenizer,
     )
@@ -84,9 +82,7 @@ def train(
     )
 
     model = AutoregressiveWrapper(model)
-    # model = DDP(model)
-    model.to(device)
-    pjrt.broadcast_master_param(model)
+    model.to(accelerator.device)
 
     n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
@@ -117,6 +113,8 @@ def train(
     optim = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = lr_scheduler.LinearLR(optim, start_factor=1, total_iters=len(data_loader) * epochs)
 
+    model, optim, data_loader, scheduler = accelerator.prepare(model, optim, data_loader, scheduler)
+
     model.train()
     loader = cycle(data_loader)
 
@@ -125,19 +123,18 @@ def train(
             losses = []
             for _ in range(4):
                 loss = model(next(loader))
-                loss.backward()
+                accelerator.backward(loss)
                 losses.append(loss.item())
-                print(loss.item())
             if i % generate_every == 0:
-                """model.eval()
+                model.eval()
                 inp = random.choice(dataset)[:-1]
+
                 sample = model.generate(inp[None, ...], 64)
                 text = dataset.tokenizer.decode(sample[0])
                 console.print(text)
                 with open(f"{output_dir}/sample_{i}.txt", "w", encoding="utf-8") as f:
                     f.write(text)
-                model.train()"""
-                ...
+                model.train()
             if i % save_every == 0:
                 torch.save(model.state_dict(), f"{output_dir}/model_{i}.pt")
             if i % log_every == 0:
@@ -162,7 +159,6 @@ def train(
             optim.step()
             optim.zero_grad()
             scheduler.step()
-            xm.mark_step()
 
 
 if __name__ == "__main__":
@@ -173,6 +169,8 @@ if __name__ == "__main__":
     parser.add_argument("--tokenizer", type=str, default="gpt2")
     parser.add_argument("--separate_token", type=str, default="<|endoftext|>")
     parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--mixed_precision", type=str, default="fp16")
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--generate_every", type=int, default=100)
@@ -193,30 +191,28 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    os.environ['PJRT_DEVICE'] = 'TPU'
-
-    xmp.spawn(
-        train(
-            args.dataset,
-            args.text_field,
-            args.seq_len,
-            args.tokenizer,
-            args.separate_token,
-            args.batch_size,
-            args.lr,
-            args.epochs,
-            args.generate_every,
-            args.save_every,
-            args.log_every,
-            args.output_dir,
-            args.num_tokens,
-            args.dim,
-            args.depth,
-            args.heads,
-            args.dim_head,
-            args.cross_attn_dropout,
-            args.cross_attn_seq_len,
-            args.wandb,
-            args.wandb_project,
-        )
+    train(
+        args.dataset,
+        args.text_field,
+        args.seq_len,
+        args.tokenizer,
+        args.separate_token,
+        args.batch_size,
+        args.cpu,
+        args.mixed_precision,
+        args.lr,
+        args.epochs,
+        args.generate_every,
+        args.save_every,
+        args.log_every,
+        args.output_dir,
+        args.num_tokens,
+        args.dim,
+        args.depth,
+        args.heads,
+        args.dim_head,
+        args.cross_attn_dropout,
+        args.cross_attn_seq_len,
+        args.wandb,
+        args.wandb_project,
     )
