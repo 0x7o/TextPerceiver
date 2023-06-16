@@ -127,6 +127,7 @@ def train(
                 loss = model(next(loader))
                 loss.backward()
                 losses.append(loss.item())
+                print(loss.item())
             if i % generate_every == 0:
                 """model.eval()
                 inp = random.choice(dataset)[:-1]
